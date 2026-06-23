@@ -42,6 +42,13 @@ def _safe(val, *keys, default=None):
     return cur
 
 
+def _scalar(val):
+    """Coerce to a SQLite-bindable scalar; dicts and lists degrade to None."""
+    if isinstance(val, (dict, list)):
+        return None
+    return val
+
+
 def _pace_s_per_km(distance_m: float | None, duration_s: float | None) -> float | None:
     """Compute seconds-per-km pace; returns None if inputs are missing/zero."""
     if not distance_m or not duration_s:
@@ -194,9 +201,14 @@ def fetch_daily_health(client, start_date: str, end_date: str) -> int:
             try:
                 time.sleep(API_SLEEP_S)
                 ts = client.get_training_status(d)
-                row["training_status"] = _safe(ts, "mostRecentTrainingStatus") \
-                                         or _safe(ts, "trainingStatus", "latestTrainingStatusData",
-                                                  0, "trainingStatus")
+                # mostRecentTrainingStatus → latestTrainingStatusData → {deviceId: {...}}
+                latest = _safe(ts, "mostRecentTrainingStatus", "latestTrainingStatusData",
+                               default={}) or {}
+                entry = next(iter(latest.values()), {}) if isinstance(latest, dict) else {}
+                row["training_status"] = (
+                    _safe(entry, "trainingStatusFeedbackPhrase")
+                    or _safe(entry, "trainingStatus")
+                )
             except Exception as exc:
                 logger.debug("Training status %s: %s", d, exc)
                 row["training_status"] = None
@@ -223,6 +235,7 @@ def fetch_daily_health(client, start_date: str, end_date: str) -> int:
             for z in range(1, 6):
                 row[f"hr_zone{z}_s"] = None
 
+            row = {k: _scalar(v) for k, v in row.items()}
             upsert_daily_health(conn, row)
             count += 1
             time.sleep(API_SLEEP_S)
