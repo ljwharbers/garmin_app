@@ -109,10 +109,10 @@ def test_distance_milestones_empty_type(acts_df):
 @pytest.fixture
 def prs_df():
     return pd.DataFrame({
-        "pr_id": ["111_1", "222_3", "333_7", "0_12"],
-        "activity_type": ["running", "running", "running", None],
+        "pr_id": ["111_1", "222_3", "333_7", "0_7"],
+        "activity_type": ["running", "running", "running", "running"],
         "metric": [None, None, None, None],
-        "value": [232.8, 1329.9, 21466.0, 32439.0],
+        "value": [232.8, 1329.9, 21466.0, 50000.0],
         "unit": [None, None, None, None],
         "activity_id": ["111", "222", "333", "0"],
         "date": ["2024-01-15", "2024-02-20", "2024-03-10", None],
@@ -120,15 +120,15 @@ def prs_df():
 
 def test_format_personal_records_skips_aggregates(prs_df):
     result = format_personal_records(prs_df)
-    # typeId 12 (activity_id="0") must be excluded
-    assert not any(result["label"].str.contains("12", na=False))
+    # The row with activity_id="0" (typeId 7, a known type) must be excluded
     assert len(result) == 3
+    activity_ids = result["activity_id"].tolist()
+    assert "0" not in activity_ids
 
 def test_format_personal_records_type1_duration(prs_df):
     result = format_personal_records(prs_df)
     row = result[result["label"] == "Fastest 1 km"].iloc[0]
-    # fmt_duration(232.8): int(round(232.8)) = 233s = 3m53s -> "3:53"
-    assert row["value_fmt"] == "3:53"
+    assert row["value_fmt"] == "3:53"  # 232.8s → rounds to 233s = 3m53s
 
 def test_format_personal_records_type7_km(prs_df):
     result = format_personal_records(prs_df)
