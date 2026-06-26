@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from garmin_reporting.transform import enrich_activities, fmt_pace, fmt_duration
+from garmin_reporting.transform import enrich_activities, fmt_duration
 
 _PR_TYPE_MAP = {
     1: ("Fastest 1 km",          "s"),
