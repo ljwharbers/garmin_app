@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "garmin-dashboard"
+version = "0.1.0"
+description = "Personal Garmin activity dashboard — native desktop app powered by NiceGUI"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "nicegui>=1.4",
+    "pywebview>=3.0",
+    "garminconnect>=0.3.2",
+    "pandas>=2.2.0",
+    "plotly>=5.22.0",
+    "statsmodels>=0.14",
+    "platformdirs>=3.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+garmin-dashboard = "garmin_reporting.app.main:run"
+garmin-dashboard-fetch = "garmin_reporting.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
