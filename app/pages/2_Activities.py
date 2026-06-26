@@ -61,6 +61,8 @@ display_cols = {
     "avg_cadence": "Cadence",
     "elevation_gain_m": "Elev (m)",
     "calories": "Cal",
+    "avg_power": "Power (W)",
+    "vo2max": "VO₂max",
 }
 table = filtered[[c for c in display_cols if c in filtered.columns]].copy()
 if "distance_km" in table.columns:
@@ -75,6 +77,10 @@ if "elevation_gain_m" in table.columns:
     table["elevation_gain_m"] = table["elevation_gain_m"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
 if "calories" in table.columns:
     table["calories"] = table["calories"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
+if "avg_power" in table.columns:
+    table["avg_power"] = table["avg_power"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "—")
+if "vo2max" in table.columns:
+    table["vo2max"] = table["vo2max"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "—")
 
 table = table.rename(columns=display_cols)
 st.caption(f"{len(filtered)} activities shown")
@@ -107,13 +113,15 @@ sel_act = filtered.iloc[selected_idx]
 sel_id = activity_ids[selected_idx]
 
 # Summary row
-mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+mc1, mc2, mc3, mc4, mc5, mc6, mc7 = st.columns(7)
 mc1.metric("Distance", f"{sel_act['distance_km']:.2f} km")
 mc2.metric("Duration", sel_act.get("duration_fmt", "—"))
 mc3.metric("Avg pace", sel_act.get("pace_fmt", "—") + " /km")
 mc4.metric("Avg HR", f"{sel_act['avg_hr']:.0f} bpm" if pd.notna(sel_act.get("avg_hr")) else "—")
 mc5.metric("Elevation", f"{sel_act['elevation_gain_m']:.0f} m"
            if pd.notna(sel_act.get("elevation_gain_m")) else "—")
+mc6.metric("Avg power", f"{sel_act['avg_power']:.0f} W" if pd.notna(sel_act.get("avg_power")) else "—")
+mc7.metric("VO₂max", f"{sel_act['vo2max']:.1f}" if pd.notna(sel_act.get("vo2max")) else "—")
 
 # Splits
 @st.cache_data(ttl=600)
