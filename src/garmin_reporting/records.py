@@ -8,6 +8,11 @@ import pandas as pd
 
 from garmin_reporting.transform import enrich_activities, fmt_duration
 
+# typeId → (display_label, unit_type)
+# unit_type "s" = elapsed seconds (verified against live DB dump: typeId 1–6 store
+#   race finish times as float seconds); "m" = distance in metres.
+# typeId is parsed from pr_id which encodes "{activity_id}_{typeId}" — this coupling
+# is intentional (the unit column from Garmin is NULL for all fetched PRs).
 _PR_TYPE_MAP = {
     1: ("Fastest 1 km",          "s"),
     2: ("Fastest Mile",          "s"),

@@ -110,7 +110,6 @@ def _parse_splits(raw_splits: dict | None) -> list[dict]:
         return []
 
     candidates = _safe(raw_splits, "lapDTOs") or []
-    # Prefer "lapDTOs" structure
     splits = []
     for i, lap in enumerate(candidates):
         dist = _safe(lap, "distance")
@@ -167,6 +166,22 @@ def fetch_activities(client, start_date: str, end_date: str) -> int:
     return count
 
 
+def _health_dates_to_fetch(
+    start_date: str, end_date: str,
+    already_stored: set[str], refetch_days: int
+) -> list[str]:
+    """Return dates in [start_date, end_date] that should be fetched.
+
+    Skips stored dates outside the trailing refetch_days window.
+    """
+    end_dt = date.fromisoformat(end_date)
+    refetch_cutoff = (end_dt - timedelta(days=refetch_days)).isoformat()
+    return [
+        d for d in _date_range(start_date, end_date)
+        if d not in already_stored or d >= refetch_cutoff
+    ]
+
+
 def fetch_daily_health(client, start_date: str, end_date: str) -> int:
     """Fetch daily health metrics for each date in range and store them.
 
@@ -175,15 +190,11 @@ def fetch_daily_health(client, start_date: str, end_date: str) -> int:
 
     Returns the number of days stored.
     """
-    from datetime import date as _date
     logger.info("Fetching daily health %s → %s", start_date, end_date)
 
     already_stored = get_stored_health_dates()
-    end_dt = _date.fromisoformat(end_date)
-    refetch_cutoff = (end_dt - timedelta(days=HEALTH_REFETCH_DAYS)).isoformat()
-
     all_dates = list(_date_range(start_date, end_date))
-    to_fetch = [d for d in all_dates if d not in already_stored or d >= refetch_cutoff]
+    to_fetch = _health_dates_to_fetch(start_date, end_date, already_stored, HEALTH_REFETCH_DAYS)
     skipped = len(all_dates) - len(to_fetch)
     if skipped:
         logger.info("Skipping %d already-stored health days (outside %d-day window).",

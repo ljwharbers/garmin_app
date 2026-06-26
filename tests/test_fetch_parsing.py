@@ -90,3 +90,37 @@ def test_parse_splits_empty():
 
 def test_parse_splits_no_lapdtos():
     assert _parse_splits({"lapDTOs": []}) == []
+
+
+from garmin_reporting.fetch import _health_dates_to_fetch
+
+
+# ---- _health_dates_to_fetch ------------------------------------------------
+
+def test_health_dates_to_fetch_all_new():
+    result = _health_dates_to_fetch("2024-01-01", "2024-01-05", set(), 3)
+    assert result == ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+
+def test_health_dates_to_fetch_skips_old_stored():
+    # 01, 02, 03 stored; 04, 05 in trailing window (refetch_days=3, end=2024-01-05 → cutoff=2024-01-02)
+    stored = {"2024-01-01", "2024-01-02", "2024-01-03"}
+    result = _health_dates_to_fetch("2024-01-01", "2024-01-05", stored, 3)
+    # cutoff = 2024-01-05 - 3 days = 2024-01-02; dates >= 2024-01-02 are re-fetched even if stored
+    assert "2024-01-01" not in result  # stored and before cutoff → skipped
+    assert "2024-01-02" in result       # stored but == cutoff → re-fetched
+    assert "2024-01-03" in result       # stored but after cutoff → re-fetched
+    assert "2024-01-04" in result       # not stored → fetched
+    assert "2024-01-05" in result       # not stored → fetched
+
+def test_health_dates_to_fetch_all_stored_outside_window():
+    stored = {"2024-01-01", "2024-01-02"}
+    result = _health_dates_to_fetch("2024-01-01", "2024-01-02", stored, 0)
+    # refetch_days=0 → cutoff = end_date itself → only end_date is in window
+    # 2024-01-01 stored and < cutoff (2024-01-02) → skip
+    # 2024-01-02 stored and == cutoff → re-fetch
+    assert "2024-01-01" not in result
+    assert "2024-01-02" in result
+
+def test_health_dates_to_fetch_empty_range():
+    result = _health_dates_to_fetch("2024-01-05", "2024-01-04", set(), 3)
+    assert result == []
