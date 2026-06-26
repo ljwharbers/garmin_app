@@ -8,10 +8,10 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from garmin_reporting.db import get_activities_df
+from garmin_reporting.db import get_activities_df, get_personal_records_df
 from garmin_reporting.transform import enrich_activities
 from garmin_reporting.records import (
-    best_efforts,
+    format_personal_records,
     longest_activity,
     fastest_pace,
     current_streak,
@@ -25,11 +25,12 @@ st.title("🏆 Records & Milestones")
 @st.cache_data(ttl=600)
 def load():
     acts = get_activities_df()
+    prs = get_personal_records_df()
     if not acts.empty:
         acts = enrich_activities(acts)
-    return acts
+    return acts, prs
 
-acts = load()
+acts, prs = load()
 if acts.empty:
     st.info("No data yet. Run `python -m scripts.refresh` first.")
     st.stop()
@@ -43,16 +44,17 @@ pr_type = st.sidebar.selectbox(
 )
 
 # ---------------------------------------------------------------------------
-# Best efforts (race distances)
+# Personal records (real Garmin PRs)
 # ---------------------------------------------------------------------------
-st.subheader(f"Best efforts — {pr_type}")
-be = best_efforts(acts, activity_type=pr_type)
-if not be.empty:
-    cols = st.columns(len(be))
-    for col, (_, row) in zip(cols, be.iterrows()):
-        label = row["distance"].replace("_", " ").title()
-        col.metric(label, row["best_time_fmt"],
-                   help=f"Pace: {row['pace_fmt']} /km · Date: {row['date'] or '—'}")
+st.subheader("Personal records")
+pr_display = format_personal_records(prs)
+if not pr_display.empty:
+    cols = st.columns(len(pr_display))
+    for col, (_, row) in zip(cols, pr_display.iterrows()):
+        col.metric(row["label"], row["value_fmt"],
+                   help=f"Date: {row['date'] or '—'}")
+else:
+    st.info("No personal records found. Run `python -m scripts.refresh` to fetch them.")
 
 st.markdown("---")
 

@@ -8,44 +8,57 @@ import pandas as pd
 
 from garmin_reporting.transform import enrich_activities, fmt_pace, fmt_duration
 
-# Distance thresholds used for "best effort" PR computation (metres).
-PR_DISTANCES = {
-    "5k": 5_000,
-    "10k": 10_000,
-    "half_marathon": 21_097,
-    "marathon": 42_195,
+_PR_TYPE_MAP = {
+    1: ("Fastest 1 km",          "s"),
+    2: ("Fastest Mile",          "s"),
+    3: ("Fastest 5K",            "s"),
+    4: ("Fastest 10K",           "s"),
+    5: ("Fastest Half Marathon", "s"),
+    6: ("Fastest Marathon",      "s"),
+    7: ("Longest Run",           "m"),
 }
 
 
-def best_efforts(df: pd.DataFrame, activity_type: str = "running") -> pd.DataFrame:
-    """Return a DataFrame of best-effort times for standard race distances.
+def format_personal_records(prs_df: pd.DataFrame) -> pd.DataFrame:
+    """Format the personal_records table rows for display.
 
-    Strategy: for each activity that is >= the target distance, compute an
-    estimated time for that distance using the average pace.  This is a proxy
-    — not segment-exact — but works well without downloading raw GPS tracks.
+    Skips unknown typeIds and lifetime-aggregate rows (activity_id == '0').
+    Returns columns: label, value_fmt, date, activity_id.
     """
-    d = enrich_activities(df)
-    d = d[d["activity_type"] == activity_type].copy()
-    d = d.dropna(subset=["avg_pace_s_per_km", "distance_m"])
+    if prs_df.empty:
+        return pd.DataFrame(columns=["label", "value_fmt", "date", "activity_id"])
 
     rows = []
-    for label, target_m in PR_DISTANCES.items():
-        eligible = d[d["distance_m"] >= target_m].copy()
-        if eligible.empty:
-            rows.append({"distance": label, "best_time_s": None, "best_time_fmt": "—",
-                         "pace_fmt": "—", "date": None, "activity_id": None})
+    for _, pr in prs_df.iterrows():
+        pr_id = str(pr.get("pr_id", ""))
+        try:
+            type_id = int(pr_id.rsplit("_", 1)[-1])
+        except ValueError:
             continue
-        eligible["est_time_s"] = eligible["avg_pace_s_per_km"] * (target_m / 1000)
-        best = eligible.loc[eligible["est_time_s"].idxmin()]
+        if type_id not in _PR_TYPE_MAP:
+            continue
+        activity_id = str(pr.get("activity_id", "0") or "0")
+        if activity_id == "0":
+            continue
+
+        label, unit_type = _PR_TYPE_MAP[type_id]
+        value = pr.get("value")
+        if value is None or pd.isna(value):
+            continue
+
+        if unit_type == "s":
+            value_fmt = fmt_duration(float(value))
+        else:  # "m"
+            value_fmt = f"{float(value) / 1000:.2f} km"
+
         rows.append({
-            "distance": label,
-            "best_time_s": best["est_time_s"],
-            "best_time_fmt": fmt_duration(best["est_time_s"]),
-            "pace_fmt": fmt_pace(best["avg_pace_s_per_km"]),
-            "date": str(best["date"]),
-            "activity_id": best["activity_id"],
+            "label": label,
+            "value_fmt": value_fmt,
+            "date": str(pr.get("date") or ""),
+            "activity_id": activity_id,
         })
-    return pd.DataFrame(rows)
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["label", "value_fmt", "date", "activity_id"])
 
 
 def longest_activity(df: pd.DataFrame, activity_type: str = "running") -> dict:
