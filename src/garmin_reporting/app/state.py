@@ -21,6 +21,7 @@ from garmin_reporting.transform import enrich_activities
 
 logger = logging.getLogger(__name__)
 
+# Process-global cache — single-user assumption (see account.py for the same note).
 _cache: dict = {"acts": None, "health": None, "prs": None}
 
 

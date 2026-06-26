@@ -1,15 +1,28 @@
-from nicegui import ui, run as nicegui_run
-import threading
+from __future__ import annotations
+
 import logging
+import re
+import threading
+
+from nicegui import ui, run as nicegui_run
+
 from garmin_reporting.auth import login_with_tokens, begin_login, complete_login
 from garmin_reporting.fetch import run_fetch
 from garmin_reporting.db import get_latest_activity_date, get_activities_df, get_daily_health_df
 from garmin_reporting.app import state
 
-_g = {"client": None, "mfa_state": None, "mfa_client": None}
+logger = logging.getLogger(__name__)
+
+# Process-global: authenticated client and in-progress MFA state.
+# Single-user assumption — this app is designed for one user at a time.
+# If multi-user access is ever enabled (e.g. --host 0.0.0.0) this must
+# move into app.storage.user and be gated behind authentication.
+_g: dict = {"client": None, "mfa_state": None, "mfa_client": None}
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def _set_client(client):
+def _set_client(client) -> None:
     _g["client"] = client
 
 
@@ -22,7 +35,7 @@ def account_page():
         ui.label("Data & Account").classes("text-h4")
 
         # --- Data status section ---
-        with ui.card().classes("w-full") as status_card:
+        with ui.card().classes("w-full"):
             ui.label("Data Status").classes("text-h6")
             last_act_label = ui.label("")
             n_acts_label = ui.label("")
@@ -34,18 +47,19 @@ def account_page():
                     last_act_label.set_text(f"Last activity: {ld[:10] if ld else 'none'}")
                     n_acts_label.set_text(f"Activities: {len(get_activities_df())}")
                     n_health_label.set_text(f"Health days: {len(get_daily_health_df())}")
-                except Exception as e:
-                    last_act_label.set_text(f"Error reading DB: {e}")
+                except Exception:
+                    logger.exception("Failed to read DB status")
+                    last_act_label.set_text("Error reading DB status.")
 
             refresh_status()
             ui.button("Refresh status", on_click=refresh_status, icon="refresh").props("flat")
 
         # --- Login section ---
-        with ui.card().classes("w-full") as login_card:
+        with ui.card().classes("w-full"):
             ui.label("Garmin Connect Login").classes("text-h6")
             status_label = ui.label("")
 
-            # Try token login immediately
+            # Try token login immediately on page load.
             try:
                 c = login_with_tokens()
                 if c:
@@ -55,7 +69,7 @@ def account_page():
             except Exception:
                 pass
 
-            with ui.column().classes("gap-2 w-full max-w-md") as login_form:
+            with ui.column().classes("gap-2 w-full max-w-md"):
                 email_input = ui.input("Garmin email", placeholder="user@example.com")
                 password_input = ui.input("Password", password=True, password_toggle_button=True)
 
@@ -64,13 +78,16 @@ def account_page():
 
                     async def submit_mfa():
                         try:
-                            c = await nicegui_run.io_bound(complete_login, _g["mfa_client"], _g["mfa_state"], mfa_input.value)
+                            c = await nicegui_run.io_bound(
+                                complete_login, _g["mfa_client"], _g["mfa_state"], mfa_input.value
+                            )
                             _g["client"] = c
                             status_label.set_text("MFA login complete.")
                             status_label.classes(remove="text-red-600", add="text-green-600")
                             mfa_row.classes(add="hidden")
-                        except Exception as e:
-                            status_label.set_text(f"MFA failed: {e}")
+                        except Exception:
+                            logger.exception("MFA completion failed")
+                            status_label.set_text("MFA failed — check the code and try again.")
                             status_label.classes(add="text-red-600")
 
                     ui.button("Submit code", on_click=submit_mfa)
@@ -79,7 +96,9 @@ def account_page():
                     status_label.set_text("Logging in…")
                     status_label.classes(remove="text-green-600 text-red-600")
                     try:
-                        client, mfa_state = await nicegui_run.io_bound(begin_login, email_input.value, password_input.value)
+                        client, mfa_state = await nicegui_run.io_bound(
+                            begin_login, email_input.value, password_input.value
+                        )
                         if mfa_state is not None:
                             _g["mfa_client"] = client
                             _g["mfa_state"] = mfa_state
@@ -89,8 +108,9 @@ def account_page():
                             _g["client"] = client
                             status_label.set_text("Logged in successfully.")
                             status_label.classes(add="text-green-600")
-                    except Exception as e:
-                        status_label.set_text(f"Login failed: {e}")
+                    except Exception:
+                        logger.exception("Login failed")
+                        status_label.set_text("Login failed — check your email/password and try again.")
                         status_label.classes(add="text-red-600")
 
                 ui.button("Log in", on_click=do_login, icon="login")
@@ -98,19 +118,31 @@ def account_page():
         # --- Fetch section ---
         with ui.card().classes("w-full"):
             ui.label("Fetch Data").classes("text-h6")
-            since_input = ui.input("Fetch from (YYYY-MM-DD, leave blank for incremental)", placeholder="2025-01-01")
+            since_input = ui.input(
+                "Fetch from (YYYY-MM-DD, leave blank for incremental)",
+                placeholder="2025-01-01",
+            )
             full_cb = ui.checkbox("Full backfill (from 2020-01-01)")
             fetch_btn = ui.button("Fetch now", icon="sync")
             prog_bar = ui.linear_progress(0).classes("w-full")
             prog_label = ui.label("")
             fetch_log = ui.log(max_lines=60).classes("w-full h-40")
 
-            _fetch_state = {"current": 0, "total": 1, "phase": "", "msg": "", "done": False, "summary": None, "error": None}
+            _fetch_state: dict = {
+                "current": 0, "total": 1, "phase": "", "msg": "",
+                "done": False, "summary": None, "error": None,
+            }
 
             async def on_fetch():
                 if _g["client"] is None:
                     ui.notify("Please log in first.", type="warning")
                     return
+
+                since_val = since_input.value.strip() or None
+                if since_val and not _DATE_RE.match(since_val):
+                    ui.notify("'Fetch from' must be YYYY-MM-DD (e.g. 2025-01-01).", type="warning")
+                    return
+
                 fetch_btn.set_enabled(False)
                 prog_bar.set_value(0)
                 _fetch_state.update({"done": False, "error": None, "summary": None, "current": 0, "total": 1})
@@ -120,9 +152,15 @@ def account_page():
 
                 def _do_fetch():
                     try:
-                        s = run_fetch(client=_g["client"], since=since_input.value.strip() or None, full=full_cb.value, progress=_progress_cb)
+                        s = run_fetch(
+                            client=_g["client"],
+                            since=since_val,
+                            full=full_cb.value,
+                            progress=_progress_cb,
+                        )
                         _fetch_state.update({"done": True, "summary": s, "error": None})
                     except Exception as exc:
+                        logger.exception("Fetch failed")
                         _fetch_state.update({"done": True, "summary": None, "error": str(exc)})
 
                 threading.Thread(target=_do_fetch, daemon=True).start()
@@ -133,10 +171,14 @@ def account_page():
                         fetch_btn.set_enabled(True)
                         prog_bar.set_value(1)
                         if _fetch_state["error"]:
-                            ui.notify(f"Fetch failed: {_fetch_state['error']}", type="negative")
+                            ui.notify("Fetch failed — see the log for details.", type="negative")
                         else:
                             s = _fetch_state["summary"]
-                            ui.notify(f"Done: {s['activities']} activities, {s['health_days']} health days, {s['prs']} PRs", type="positive")
+                            ui.notify(
+                                f"Done: {s['activities']} activities, "
+                                f"{s['health_days']} health days, {s['prs']} PRs",
+                                type="positive",
+                            )
                             state.invalidate()
                             refresh_status()
                         return

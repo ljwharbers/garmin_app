@@ -1,8 +1,9 @@
 """Garmin Dashboard — NiceGUI app entry point.
 
 Entry point:  garmin-dashboard
-Launch flags: --browser  (open in browser instead of native window)
-              --port N   (default 8080)
+Launch flags: --browser        (open in browser instead of native window)
+              --port N         (default 8080)
+              --host ADDR      (default 127.0.0.1; use 0.0.0.0 for LAN access)
 """
 from __future__ import annotations
 import argparse
@@ -45,6 +46,7 @@ def run() -> None:
     )
     parser.add_argument("--browser", action="store_true", help="Open in browser instead of native window.")
     parser.add_argument("--port", type=int, default=8080, help="Server port (default 8080).")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind (default 127.0.0.1). Use 0.0.0.0 to expose on LAN.")
     parser.add_argument("--window-size", default="1280x860", help='Native window size as WxH (default "1280x860").')
     args = parser.parse_args()
 
@@ -60,6 +62,7 @@ def run() -> None:
 
     ui.run(
         native=native,
+        host=args.host,
         port=args.port,
         reload=False,
         window_size=(w, h),

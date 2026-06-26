@@ -16,8 +16,11 @@ pip install -e ".[dev]"          # installs the package + dev deps (pytest)
 # Launch the desktop app (opens a native window)
 garmin-dashboard
 
-# Launch in browser mode (no pywebview needed)
+# Launch in browser mode (no pywebview needed) — binds to 127.0.0.1 by default
 garmin-dashboard --browser
+
+# Expose on LAN (no auth — trusted-network only)
+garmin-dashboard --browser --host 0.0.0.0
 
 # Fetch / refresh data headlessly (uses cached tokens or .env fallback)
 garmin-dashboard-fetch                     # incremental: since last stored activity
@@ -67,7 +70,7 @@ Garmin Connect API → fetch.py → SQLite (~user-data/garmin-dashboard/garmin.d
 
 ## Conventions & gotchas
 
-- **`config` is inside the package.** Import as `from garmin_reporting.config import X` — never `from config import X`. The root `config.py` is a legacy shim for the old Streamlit app (to be deleted in a future cleanup pass).
+- **`config` is inside the package.** Import as `from garmin_reporting.config import X` — never `from config import X`.
 - **`pytest.ini` uses `pythonpath = src`** (no `.` needed — `config` is now in-package). Run `python -m pytest` from project root.
 - **NiceGUI pages register via `@ui.page` at import time.** `main.py` imports all page modules to fire their decorators; do the same for any new pages.
 - **Fetching is blocking/sync.** The account page runs `run_fetch` in a `threading.Thread` and polls via `ui.timer(0.2)` — do NOT call it directly from an async handler or the UI will freeze.
@@ -76,3 +79,4 @@ Garmin Connect API → fetch.py → SQLite (~user-data/garmin-dashboard/garmin.d
 - `Europe/Brussels` timezone is hardcoded in `db.get_activities_df()`.
 - **pywebview platform requirements:** Windows needs WebView2 / .NET Framework; Linux needs a GTK or Qt webview package. Use `--browser` flag as a fallback on any platform.
 - Credentials (`.env`) and token cache (`~/.garminconnect/`) are kept out of the repo — the repo lives in a OneDrive folder, so never commit or relocate them. The DB (`~/Library/Application Support/garmin-dashboard/garmin.db` on macOS) is outside the repo and never synced.
+- **Password-optional:** after one successful login the token cache is valid ~1 year. `GARMIN_PASSWORD` should not be stored in `.env` once tokens exist — remove it and rely on token login. See `.env.example`.
