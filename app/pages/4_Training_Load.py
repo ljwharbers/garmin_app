@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from garmin_reporting.db import get_activities_df, get_daily_health_df
-from garmin_reporting.transform import enrich_activities, rolling_load, hr_zone_totals
+from garmin_reporting.transform import enrich_activities, rolling_load
 
 st.set_page_config(page_title="Training Load · Garmin", page_icon="💪", layout="wide")
 st.title("💪 Training Load & Health")
@@ -82,35 +82,6 @@ if not load_df.empty:
             "🟢 Optimal zone (0.8–1.3)" if 0.8 <= acwr_now <= 1.3
             else ("🔴 High injury-risk zone (>1.3)" if acwr_now > 1.3 else "🟡 Under-training zone (<0.8)")
         )
-
-st.markdown("---")
-
-# ---------------------------------------------------------------------------
-# HR zone distribution
-# ---------------------------------------------------------------------------
-st.subheader("HR zone distribution")
-if not filtered_health.empty:
-    zone_df = hr_zone_totals(filtered_health)
-    zone_df_nonzero = zone_df[zone_df["hours"] > 0]
-    if not zone_df_nonzero.empty:
-        col_l, col_r = st.columns(2)
-        with col_l:
-            fig_z = px.pie(zone_df_nonzero, names="zone", values="hours",
-                           template="plotly_dark", hole=0.4,
-                           color_discrete_sequence=px.colors.sequential.Viridis_r)
-            fig_z.update_layout(height=280, margin=dict(l=0,r=0,t=10,b=0))
-            st.plotly_chart(fig_z, use_container_width=True)
-        with col_r:
-            fig_zb = px.bar(zone_df, x="zone", y="hours", template="plotly_dark",
-                            labels={"hours": "Hours", "zone": "Zone"},
-                            color="zone", color_discrete_sequence=px.colors.sequential.Viridis_r)
-            fig_zb.update_layout(height=280, margin=dict(l=0,r=0,t=10,b=0),
-                                  showlegend=False)
-            st.plotly_chart(fig_zb, use_container_width=True)
-    else:
-        st.info("No HR zone time data available for the selected period.")
-else:
-    st.info("No health data loaded. Run `python -m scripts.refresh` first.")
 
 st.markdown("---")
 

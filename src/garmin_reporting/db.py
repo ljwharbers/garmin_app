@@ -75,12 +75,7 @@ CREATE TABLE IF NOT EXISTS daily_health (
     vo2max            REAL,
     training_status   TEXT,
     training_readiness REAL,
-    sleep_hours       REAL,
-    hr_zone1_s        REAL,   -- time in each HR zone (seconds)
-    hr_zone2_s        REAL,
-    hr_zone3_s        REAL,
-    hr_zone4_s        REAL,
-    hr_zone5_s        REAL
+    sleep_hours       REAL
 );
 
 CREATE TABLE IF NOT EXISTS personal_records (
@@ -164,22 +159,15 @@ def upsert_daily_health(conn: sqlite3.Connection, row: dict) -> None:
     conn.execute(
         """
         INSERT INTO daily_health
-            (date, resting_hr, vo2max, training_status, training_readiness,
-             sleep_hours, hr_zone1_s, hr_zone2_s, hr_zone3_s, hr_zone4_s, hr_zone5_s)
+            (date, resting_hr, vo2max, training_status, training_readiness, sleep_hours)
         VALUES
-            (:date, :resting_hr, :vo2max, :training_status, :training_readiness,
-             :sleep_hours, :hr_zone1_s, :hr_zone2_s, :hr_zone3_s, :hr_zone4_s, :hr_zone5_s)
+            (:date, :resting_hr, :vo2max, :training_status, :training_readiness, :sleep_hours)
         ON CONFLICT(date) DO UPDATE SET
             resting_hr          = excluded.resting_hr,
             vo2max              = excluded.vo2max,
             training_status     = excluded.training_status,
             training_readiness  = excluded.training_readiness,
-            sleep_hours         = excluded.sleep_hours,
-            hr_zone1_s          = excluded.hr_zone1_s,
-            hr_zone2_s          = excluded.hr_zone2_s,
-            hr_zone3_s          = excluded.hr_zone3_s,
-            hr_zone4_s          = excluded.hr_zone4_s,
-            hr_zone5_s          = excluded.hr_zone5_s
+            sleep_hours         = excluded.sleep_hours
         """,
         row,
     )

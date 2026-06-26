@@ -108,12 +108,7 @@ def _parse_splits(raw_splits: dict | None) -> list[dict]:
     if not raw_splits:
         return []
 
-    # Garmin returns splits under several possible keys; try the km splits first.
-    candidates = (
-        _safe(raw_splits, "lapDTOs")
-        or _safe(raw_splits, "metricDescriptors")  # fallback (different shape)
-        or []
-    )
+    candidates = _safe(raw_splits, "lapDTOs") or []
     # Prefer "lapDTOs" structure
     splits = []
     for i, lap in enumerate(candidates):
@@ -232,10 +227,6 @@ def fetch_daily_health(client, start_date: str, end_date: str) -> int:
             except Exception as exc:
                 logger.debug("Sleep %s: %s", d, exc)
                 row["sleep_hours"] = None
-
-            # HR zones — default all None
-            for z in range(1, 6):
-                row[f"hr_zone{z}_s"] = None
 
             row = {k: _scalar(v) for k, v in row.items()}
             upsert_daily_health(conn, row)

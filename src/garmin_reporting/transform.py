@@ -170,16 +170,3 @@ def year_over_year(df: pd.DataFrame, activity_type: str | None = None) -> pd.Dat
     agg["cumulative_km"] = agg.groupby("year")["distance_km"].cumsum()
     return agg
 
-
-# ---------------------------------------------------------------------------
-# HR zone aggregation (from daily_health)
-# ---------------------------------------------------------------------------
-
-def hr_zone_totals(health_df: pd.DataFrame) -> pd.DataFrame:
-    """Return total time (hours) per HR zone across the provided health data."""
-    zone_cols = [f"hr_zone{z}_s" for z in range(1, 6)]
-    totals = health_df[zone_cols].sum()
-    result = pd.DataFrame(
-        {"zone": [f"Zone {z}" for z in range(1, 6)], "hours": (totals.values / 3600)}
-    )
-    return result
