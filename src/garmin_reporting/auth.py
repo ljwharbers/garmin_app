@@ -4,6 +4,8 @@ Credentials are loaded from the .env file (GARMIN_EMAIL, GARMIN_PASSWORD).
 Tokens are cached in ~/.garminconnect/ and auto-refreshed — you only need to
 log in interactively (possibly with MFA) on the very first run.
 """
+from __future__ import annotations
+
 import os
 from pathlib import Path
 

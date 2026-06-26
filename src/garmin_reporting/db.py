@@ -3,6 +3,8 @@
 All persistence goes through this module.  Uses stdlib sqlite3 — no ORM.
 The database lives at data/garmin.db (gitignored).
 """
+from __future__ import annotations
+
 import json
 import sqlite3
 from contextlib import contextmanager

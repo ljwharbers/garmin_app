@@ -8,6 +8,8 @@ Usage (via scripts/refresh.py):
     python -m scripts.refresh --since 2024-01-01 # override start date
     python -m scripts.refresh --full             # backfill from DEFAULT_BACKFILL_DATE
 """
+from __future__ import annotations
+
 import json
 import logging
 import time
