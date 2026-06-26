@@ -1,7 +1,7 @@
 """SQLite schema definition and read/write helpers.
 
 All persistence goes through this module.  Uses stdlib sqlite3 — no ORM.
-The database lives at data/garmin.db (gitignored).
+The database lives in the OS user-data directory (see garmin_reporting.config).
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Generator
 
 import pandas as pd
 
-from config import DB_PATH
+from garmin_reporting.config import DB_PATH, ensure_dirs
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_daily_health_date      ON daily_health(date);
 
 def init_db() -> None:
     """Create tables and indexes if they don't exist yet."""
+    ensure_dirs()
     with get_conn() as conn:
         conn.executescript(SCHEMA_SQL)
         conn.executescript(CREATE_INDEXES_SQL)

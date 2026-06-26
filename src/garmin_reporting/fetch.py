@@ -3,10 +3,16 @@
 All Garmin API calls are isolated here. The rest of the codebase only
 reads from the database.
 
-Usage (via scripts/refresh.py):
-    python -m scripts.refresh                    # fetch since last stored date
-    python -m scripts.refresh --since 2024-01-01 # override start date
-    python -m scripts.refresh --full             # backfill from DEFAULT_BACKFILL_DATE
+Usage (via garmin-dashboard-fetch CLI):
+    garmin-dashboard-fetch                    # fetch since last stored date
+    garmin-dashboard-fetch --since 2024-01-01 # override start date
+    garmin-dashboard-fetch --full             # backfill from DEFAULT_BACKFILL_DATE
+
+Progress callback:
+    run_fetch accepts an optional ``progress`` callable with signature:
+        progress(phase: str, current: int, total: int, message: str) -> None
+    It is called inside the per-activity and per-health-date loops so a UI
+    can drive a progress bar.  Default None keeps CLI behaviour identical.
 """
 from __future__ import annotations
 
@@ -14,8 +20,9 @@ import json
 import logging
 import time
 from datetime import date, datetime, timedelta
+from typing import Callable
 
-from config import API_SLEEP_S, ACTIVITIES_BATCH, DEFAULT_BACKFILL_DATE, HEALTH_REFETCH_DAYS
+from garmin_reporting.config import API_SLEEP_S, ACTIVITIES_BATCH, DEFAULT_BACKFILL_DATE, HEALTH_REFETCH_DAYS
 from garmin_reporting.db import (
     get_conn,
     get_latest_activity_date,
@@ -28,6 +35,9 @@ from garmin_reporting.db import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Type alias for the progress callback.
+ProgressCallback = Callable[[str, int, int, str], None]
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +138,12 @@ def _parse_splits(raw_splits: dict | None) -> list[dict]:
 # Main fetch routines
 # ---------------------------------------------------------------------------
 
-def fetch_activities(client, start_date: str, end_date: str) -> int:
+def fetch_activities(
+    client,
+    start_date: str,
+    end_date: str,
+    progress: ProgressCallback | None = None,
+) -> int:
     """Fetch all activities in [start_date, end_date] and store them.
 
     Returns the number of newly stored activities.
@@ -141,18 +156,21 @@ def fetch_activities(client, start_date: str, end_date: str) -> int:
     )
     if not activities:
         logger.info("No activities found in range.")
+        if progress:
+            progress("activities", 0, 0, "No activities found in range.")
         return 0
 
+    total = len(activities)
     count = 0
     with get_conn() as conn:
-        for raw in activities:
+        for idx, raw in enumerate(activities):
             row = _parse_activity(raw)
             if not row["activity_id"]:
                 continue
             upsert_activity(conn, row)
             count += 1
 
-            # Fetch per-activity splits
+            # Fetch per-activity splits.
             try:
                 time.sleep(API_SLEEP_S)
                 raw_splits = client.get_activity_splits(row["activity_id"])
@@ -161,6 +179,15 @@ def fetch_activities(client, start_date: str, end_date: str) -> int:
                     upsert_splits(conn, row["activity_id"], splits)
             except Exception as exc:
                 logger.warning("Could not fetch splits for %s: %s", row["activity_id"], exc)
+
+            if progress:
+                progress(
+                    "activities",
+                    idx + 1,
+                    total,
+                    f"Activity {idx + 1}/{total}: {row.get('activity_type', '?')} "
+                    f"on {(row.get('start_time') or '')[:10]}",
+                )
 
     logger.info("Stored %d activities.", count)
     return count
@@ -182,7 +209,12 @@ def _health_dates_to_fetch(
     ]
 
 
-def fetch_daily_health(client, start_date: str, end_date: str) -> int:
+def fetch_daily_health(
+    client,
+    start_date: str,
+    end_date: str,
+    progress: ProgressCallback | None = None,
+) -> int:
     """Fetch daily health metrics for each date in range and store them.
 
     Skips dates already stored except the trailing HEALTH_REFETCH_DAYS window
@@ -200,9 +232,10 @@ def fetch_daily_health(client, start_date: str, end_date: str) -> int:
         logger.info("Skipping %d already-stored health days (outside %d-day window).",
                     skipped, HEALTH_REFETCH_DAYS)
 
+    total = len(to_fetch)
     count = 0
     with get_conn() as conn:
-        for d in to_fetch:
+        for idx, d in enumerate(to_fetch):
             row: dict = {"date": d}
 
             try:
@@ -259,6 +292,14 @@ def fetch_daily_health(client, start_date: str, end_date: str) -> int:
             count += 1
             time.sleep(API_SLEEP_S)
 
+            if progress:
+                progress(
+                    "health",
+                    idx + 1,
+                    total,
+                    f"Health day {idx + 1}/{total}: {d}",
+                )
+
     logger.info("Stored health data for %d days.", count)
     return count
 
@@ -296,12 +337,30 @@ def fetch_personal_records(client) -> int:
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def run_fetch(since: str | None = None, full: bool = False) -> None:
-    """Main entry point called by scripts/refresh.py."""
-    from garmin_reporting.auth import get_client
+def run_fetch(
+    client=None,
+    since: str | None = None,
+    full: bool = False,
+    progress: ProgressCallback | None = None,
+) -> dict:
+    """Main entry point.  Fetches activities, health, and PRs.
+
+    Args:
+        client:   An authenticated garminconnect.Garmin instance.  If None,
+                  falls back to get_client() (the CLI / .env path).
+        since:    Fetch from this YYYY-MM-DD date onwards (overrides incremental).
+        full:     If True, backfill from DEFAULT_BACKFILL_DATE.
+        progress: Optional callback(phase, current, total, message) for UI
+                  progress bars.  None → log-only (no behaviour change).
+
+    Returns:
+        dict with keys ``activities``, ``health_days``, ``prs``.
+    """
+    if client is None:
+        from garmin_reporting.auth import get_client
+        client = get_client()
 
     init_db()
-    client = get_client()
 
     today = date.today().isoformat()
 
@@ -310,18 +369,28 @@ def run_fetch(since: str | None = None, full: bool = False) -> None:
     else:
         latest = get_latest_activity_date()
         if latest:
-            # Start from the day of the last stored activity (may overlap by one
-            # day but upserts are idempotent).
             start_date = latest[:10]
         else:
             start_date = DEFAULT_BACKFILL_DATE
 
     logger.info("=== Starting fetch: %s → %s ===", start_date, today)
-    n_acts = fetch_activities(client, start_date, today)
-    n_health = fetch_daily_health(client, start_date, today)
+
+    if progress:
+        progress("activities", 0, 1, f"Fetching activities from {start_date} …")
+    n_acts = fetch_activities(client, start_date, today, progress=progress)
+
+    if progress:
+        progress("health", 0, 1, f"Fetching health data from {start_date} …")
+    n_health = fetch_daily_health(client, start_date, today, progress=progress)
+
+    if progress:
+        progress("prs", 0, 1, "Fetching personal records …")
     n_prs = fetch_personal_records(client)
+    if progress:
+        progress("prs", 1, 1, f"Fetched {n_prs} personal records.")
 
     logger.info(
         "=== Done: %d activities, %d health days, %d PRs ===",
         n_acts, n_health, n_prs,
     )
+    return {"activities": n_acts, "health_days": n_health, "prs": n_prs}
