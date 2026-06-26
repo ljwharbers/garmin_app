@@ -22,3 +22,6 @@ API_SLEEP_S = 0.5
 
 # Number of activities to request per page when listing.
 ACTIVITIES_BATCH = 100
+
+# Days to re-fetch even if already stored (metrics like sleep/readiness finalize late).
+HEALTH_REFETCH_DAYS = 3

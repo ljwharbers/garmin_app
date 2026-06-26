@@ -230,6 +230,13 @@ def get_personal_records_df() -> pd.DataFrame:
     return df
 
 
+def get_stored_health_dates() -> set[str]:
+    """Return the set of YYYY-MM-DD strings already present in daily_health."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT date FROM daily_health").fetchall()
+    return {row["date"] for row in rows}
+
+
 def get_latest_activity_date() -> str | None:
     """Return the start_time of the most recently stored activity, or None."""
     with get_conn() as conn:

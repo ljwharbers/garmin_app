@@ -15,10 +15,11 @@ import logging
 import time
 from datetime import date, datetime, timedelta
 
-from config import API_SLEEP_S, ACTIVITIES_BATCH, DEFAULT_BACKFILL_DATE
+from config import API_SLEEP_S, ACTIVITIES_BATCH, DEFAULT_BACKFILL_DATE, HEALTH_REFETCH_DAYS
 from garmin_reporting.db import (
     get_conn,
     get_latest_activity_date,
+    get_stored_health_dates,
     upsert_activity,
     upsert_daily_health,
     upsert_splits,
@@ -169,13 +170,28 @@ def fetch_activities(client, start_date: str, end_date: str) -> int:
 def fetch_daily_health(client, start_date: str, end_date: str) -> int:
     """Fetch daily health metrics for each date in range and store them.
 
+    Skips dates already stored except the trailing HEALTH_REFETCH_DAYS window
+    (recent metrics like sleep/readiness finalize late).
+
     Returns the number of days stored.
     """
+    from datetime import date as _date
     logger.info("Fetching daily health %s → %s", start_date, end_date)
-    count = 0
 
+    already_stored = get_stored_health_dates()
+    end_dt = _date.fromisoformat(end_date)
+    refetch_cutoff = (end_dt - timedelta(days=HEALTH_REFETCH_DAYS)).isoformat()
+
+    all_dates = list(_date_range(start_date, end_date))
+    to_fetch = [d for d in all_dates if d not in already_stored or d >= refetch_cutoff]
+    skipped = len(all_dates) - len(to_fetch)
+    if skipped:
+        logger.info("Skipping %d already-stored health days (outside %d-day window).",
+                    skipped, HEALTH_REFETCH_DAYS)
+
+    count = 0
     with get_conn() as conn:
-        for d in _date_range(start_date, end_date):
+        for d in to_fetch:
             row: dict = {"date": d}
 
             try:
@@ -198,7 +214,6 @@ def fetch_daily_health(client, start_date: str, end_date: str) -> int:
             try:
                 time.sleep(API_SLEEP_S)
                 ts = client.get_training_status(d)
-                # mostRecentTrainingStatus → latestTrainingStatusData → {deviceId: {...}}
                 latest = _safe(ts, "mostRecentTrainingStatus", "latestTrainingStatusData",
                                default={}) or {}
                 entry = next(iter(latest.values()), {}) if isinstance(latest, dict) else {}
